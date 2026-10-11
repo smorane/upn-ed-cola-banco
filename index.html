@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="es">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  /><title>Transferencias en cola</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <a class="skip" href="#contenido">Saltar al contenido</a>
+  <header class="site-header">
+    <div class="brand-row">
+      <span class="brand-mark" aria-label="UPN, marca tipográfica del proyecto">
+        <img src="assets/logo-upn-150.png" height="100" alt="" />
+      </span>
+      <div>
+        <span class="brand-title">Motor de transferencias</span
+        ><span class="brand-subtitle"
+          >El motor detrás de la cola — estructuras dinámicas en banca digital</span
+        >
+      </div>
+    </div>
+    <nav class="main-nav" aria-label="Menú principal">
+      <a href="/" aria-current="page">Transferencias</a
+      ><a href="/datos">Consulta de transferencias</a>
+    </nav>
+  </header>
+  <main id="contenido">
+    <div class="page-heading">
+      <div>
+        <small>DEMOSTRACIÓN FIFO</small>
+        <h1>Transferencias en cola</h1>
+        <small>La primera en llegar es la primera en ser atendida.</small>
+      </div>
+      <span class="tag">Cuentas ficticias</span>
+    </div>
+    <section>
+      <h2>1. Agrega una transferencia</h2>
+      <form id="form">
+        <div class="formrow">
+          <div>
+            <label for="cuenta">Cuenta de destino</label
+            ><input
+              id="cuenta"
+              placeholder="Ejemplo: 001234567890"
+              inputmode="numeric"
+              pattern="[0-9]{6,20}"
+              minlength="6"
+              maxlength="20"
+              required
+            />
+          </div>
+          <div>
+            <label for="monto">Monto en soles</label
+            ><input
+              id="monto"
+              type="number"
+              min="0.01"
+              max="1000000"
+              step="0.01"
+              placeholder="100.00"
+              required
+            />
+          </div>
+          <button id="agregar">Agregar transferencia</button>
+        </div>
+        <details>
+          <summary>Opciones para probar fallos</summary>
+          <label for="modo">Escenario de esta transferencia</label
+          ><select id="modo">
+            <option value="normal">Normal</option>
+            <option value="temporal">Falla una vez y se recupera</option>
+            <option value="permanente">Falla en sus tres intentos</option>
+          </select>
+        </details>
+      </form>
+      <small
+        >La referencia se genera automáticamente. La cuenta es ficticia y no se
+        valida con ningún banco.</small
+      >
+    </section>
+    <div>
+      <div id="msg" role="status" aria-live="polite">
+        Ingresa tres transferencias para observar su orden.
+      </div>
+      <div class="stats">
+        <span><b id="pendientes">0</b>pendientes</span
+        ><span><b id="completadas">0</b>completadas</span
+        ><span><b id="fallidas">0</b>fallidas</span>
+      </div>
+    </div>
+    <section>
+      <div class="sectionhead">
+        <div>
+          <h2>2. Observa y atiende la cola</h2>
+          <small>Las nuevas transferencias ingresan por el final.</small>
+        </div>
+        <button id="procesar" disabled>Procesar siguiente</button>
+      </div>
+      <div id="cola" class="queue"></div>
+      <small id="more"></small>
+    </section>
+    <div class="two d-none">
+      <section>
+        <h2>3. Historial de atención</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Referencia</th>
+              <th>Cuenta</th>
+              <th>S/</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="historial"></tbody>
+        </table>
+        <p class="muted" style="font-size: 12px">
+          Últimas 10 transferencias finalizadas, por ID descendente.
+        </p>
+      </section>
+      <section>
+        <h2>Qué ocurrió</h2>
+        <div id="events"></div>
+      </section>
+    </div>
+    <footer>
+      <span>Proyecto académico · UPN</span>
+      <span>Desarrollado por: Sergio Morán Escalante</span>
+    </footer>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let busy = false,
+      pending = null,
+      queueSize = 0;
+    const key = "cola-peticion-v2";
+    try {
+      pending = JSON.parse(sessionStorage.getItem(key) || "null");
+    } catch (e) {}
+    function controls() {
+      for (const id of ["cuenta", "monto", "modo"])
+        $(id).disabled = busy || !!pending;
+      $("agregar").disabled = busy;
+      $("agregar").textContent = pending
+        ? "Reintentar misma solicitud"
+        : "Agregar transferencia";
+      $("procesar").disabled = busy || !!pending || queueSize === 0;
+    }
+    function text(tag, value, parent, cls = "") {
+      const e = document.createElement(tag);
+      e.textContent = value;
+      e.className = cls;
+      parent.append(e);
+      return e;
+    }
+    async function refresh() {
+      const res = await fetch("/api/estado");
+      if (!res.ok) throw Error("No se pudo consultar el estado");
+      const d = await res.json();
+      queueSize = d.pendientes;
+      $("pendientes").textContent = queueSize;
+      $("completadas").textContent = d.conteos.completada || 0;
+      $("fallidas").textContent = d.conteos.fallida || 0;
+      $("cola").replaceChildren();
+      if (!queueSize)
+        text(
+          "p",
+          "La cola está vacía. Agrega una transferencia.",
+          $("cola"),
+          "empty"
+        );
+      d.cola.forEach((r, i) => {
+        if (i) text("span", "→", $("cola"), "arrow");
+        const card = document.createElement("article");
+        card.className = "node";
+        text(
+          "span",
+          i === 0
+            ? queueSize === 1
+              ? "Frente y final"
+              : "Frente · siguiente en salir"
+            : i === queueSize - 1
+              ? "Final · última en llegar"
+              : `Posición ${i + 1}`,
+          card,
+          "badge"
+        );
+        text("b", r.referencia, card);
+        text("p", `Cuenta ${r.cuenta_destino}`, card);
+        text(
+          "p",
+          `S/ ${(r.monto_centimos / 100).toFixed(2)} · Intentos: ${r.intentos}`,
+          card
+        );
+        $("cola").append(card);
+      });
+      $("more").textContent =
+        queueSize > 8
+          ? `Se muestran los primeros 8 de ${queueSize} nodos.`
+          : "Cada tarjeta representa un nodo de la cola enlazada.";
+      $("historial").replaceChildren();
+      for (const r of d.historial) {
+        const tr = document.createElement("tr");
+        for (const v of [
+          `TR-${String(r.id).padStart(4, "0")}`,
+          r.cuenta_destino,
+          (r.monto_centimos / 100).toFixed(2),
+          r.estado
+        ])
+          text("td", v, tr);
+        $("historial").append(tr);
+      }
+      $("events").replaceChildren();
+      for (const e of d.eventos)
+        text(
+          "p",
+          `TR-${String(e.transferencia_id).padStart(4, "0")} · ${e.detalle}`,
+          $("events")
+        );
+      controls();
+    }
+    async function send(path, data) {
+      const r = await fetch("/api/" + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        const e = Error(d.error);
+        e.status = r.status;
+        throw e;
+      }
+      return d;
+    }
+    $("form").onsubmit = async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      try {
+        if (!pending) {
+          pending = {
+            cuenta: $("cuenta").value,
+            monto: $("monto").value,
+            modo: $("modo").value,
+            clave_peticion: crypto.randomUUID()
+          };
+          sessionStorage.setItem(key, JSON.stringify(pending));
+        }
+        busy = true;
+        controls();
+        const d = await send("recibir", pending);
+        pending = null;
+        sessionStorage.removeItem(key);
+        $("msg").className = "";
+        $("msg").textContent = d.mensaje;
+        $("form").reset();
+        await refresh();
+      } catch (e) {
+        if (e.status === 400) {
+          pending = null;
+          sessionStorage.removeItem(key);
+        }
+        $("msg").className = "error";
+        $("msg").textContent =
+          e.message +
+          (pending
+            ? " Conserva esta pestaña y reintenta la misma solicitud."
+            : "");
+      } finally {
+        busy = false;
+        controls();
+      }
+    };
+    $("procesar").onclick = async () => {
+      if (busy) return;
+      busy = true;
+      controls();
+      try {
+        const d = await send("procesar", {});
+        $("msg").className = "";
+        $("msg").textContent = d.mensaje;
+        await refresh();
+      } catch (e) {
+        $("msg").className = "error";
+        $("msg").textContent =
+          e.message +
+          " Actualiza la página y revisa el historial antes de procesar otra.";
+        try {
+          await refresh();
+        } catch (_) {}
+      } finally {
+        busy = false;
+        controls();
+      }
+    };
+    if (pending) {
+      $("cuenta").value = pending.cuenta;
+      $("monto").value = pending.monto;
+      $("modo").value = pending.modo;
+      $("msg").textContent =
+        "Hay una solicitud sin confirmar. Reinténtala con la misma clave.";
+    }
+    controls();
+    refresh().catch((e) => {
+      $("msg").textContent = e.message;
+    });
+  </script>
+</html>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Datos guardados · Motor de transferencias</title
+  ><link rel="stylesheet" href="/styles.css" /><a class="skip" href="#contenido"
+    >Saltar al contenido</a
+  >
+  <header class="site-header">
+    <div class="brand-row">
+      <span class="brand-mark" aria-label="UPN, marca tipográfica del proyecto">
+        <img src="assets/logo-upn-150.png" height="100" alt="" />
+      </span>
+      <div>
+        <span class="brand-title">Motor de transferencias</span
+        ><span class="brand-subtitle"
+          >El motor detrás de la cola — estructuras dinámicas en banca digital</span
+        >
+      </div>
+    </div>
+    <nav class="main-nav" aria-label="Menú principal">
+      <a href="/">Transferencias</a
+      ><a href="/datos" aria-current="page">Consulta de transferencias</a>
+    </nav>
+  </header>
+  <main id="contenido">
+    <div class="page-heading">
+      <div>
+        <small>CONSULTA DE TRANSFERENCIAS</small>
+        <h1>Datos almacenados</h1>
+        <small>Consulta las transferencias y lo que ocurrió con cada una.</small>
+      </div>
+      <button id="refresh">Actualizar datos</button>
+    </div>
+    <p id="msg" role="status" aria-live="polite">Cargando registros…</p>
+    <section>
+      <h2>Transferencias</h2>
+      <p class="data-note">
+        Una fila por operación: referencia, cuenta de destino, monto, estado, intentos y fecha en formato UTC.
+      </p>
+      <div
+        class="scroll"
+        id="transferencias"
+        tabindex="0"
+        role="region"
+        aria-label="Tabla de transferencias"
+      ></div>
+    </section>
+    <section>
+      <h2>Historial de eventos</h2>
+      <p class="data-note">
+        El campo referencia relaciona cada evento con la transferencia que
+        lo originó.
+      </p>
+      <div
+        class="scroll"
+        id="eventos"
+        tabindex="0"
+        role="region"
+        aria-label="Tabla de eventos"
+      ></div>
+    </section>
+    <footer>
+      <span>Proyecto académico · UPN</span>
+      <span>Desarrollado por: Sergio Morán Escalante</span>
+    </footer>
+  </main>
+  <script>
+    function draw(id, rows) {
+      const parent = document.getElementById(id);
+      parent.replaceChildren();
+      if (!rows.length) {
+        parent.textContent = "Sin registros.";
+        return;
+      }
+      const table = document.createElement("table"),
+        head = document.createElement("tr");
+      for (const key of Object.keys(rows[0])) {
+        const th = document.createElement("th");
+        th.textContent = key;
+        head.append(th);
+      }
+      table.append(head);
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        for (const v of Object.values(r)) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.append(td);
+        }
+        table.append(tr);
+      }
+      parent.append(table);
+    }
+    async function load() {
+      try {
+        const r = await fetch("/api/datos");
+        if (!r.ok) throw Error("No se pudo consultar");
+        const d = await r.json();
+        draw("transferencias", d.transferencias);
+        draw("eventos", d.eventos);
+        document.getElementById("msg").textContent = "Consulta actualizada.";
+      } catch (e) {
+        document.getElementById("msg").textContent = e.message;
+      }
+    }
+    document.getElementById("refresh").onclick = load;
+    load();
+  </script>
+</html>
