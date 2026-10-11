@@ -24,10 +24,10 @@ class ColaEnlazada:
         """Agrega al final sin recorrer toda la cola."""
         nuevo = Nodo(valor)
         if self.final:
-            self.final.siguiente = nuevo
+            self.final.siguiente = nuevo    # Conecta el último nodo.
         else:
-            self.frente = nuevo
-        self.final = nuevo
+            self.frente = nuevo             # La cola estaba vacía.
+        self.final = nuevo                  # Actualiza el extremo.
         self.tamano += 1
 
     def desencolar(self):
